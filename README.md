@@ -1,7 +1,7 @@
 # Genomic-Data-Science-Specialization
 
 # Specialization Certificate
-<img src="Coursera_Certificate_74XBX96Y7YDP.jpg" width="400">
+<img src="Coursera_Certificate_74XBX96Y7YDP.jpg" width="800">
 
 # Specialization Certificate from Johns Hopkins University Coursera (8 courses)
 
