@@ -1,0 +1,257 @@
+---
+title: "ExplorratoryAnalysisW7"
+author: "Syeda"
+date: "9/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+
+#Set the theme for plots
+tropical = c('darkorange','dodgerblue','hotpink','limegreen','yellow')
+palette(tropical)
+par(pch=19)
+```
+
+```{r }
+library(gplots)
+library(devtools)
+library(Biobase)
+devtools::install_github('alyssafrazee/RSkittleBrewer')
+library(RSkittleBrewer)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+```
+
+```{r }
+
+#Create Summarized Experiment object
+
+library(tibble)
+#read in the test file with gene expression counts
+gene_counts <- read.delim("feature_counts.txt", stringsAsFactors = FALSE)
+#Make sure that ncol for gene_counts is equal to nrow for ph_data
+#Remove integer row names and set gene id as row names
+rownames(gene_counts) <- gene_counts[,1]
+#Now delete the gene.id column
+gene_counts <- gene_counts[,2:13]
+
+
+# Create a feature data file
+feature_data <- data.frame(rownames(gene_counts))
+
+
+#Read in the file with sample data 
+ph_data <- read.delim("PhenotypeData2.txt", header=TRUE, stringsAsFactors = FALSE)
+
+#Convert columns to factors
+cols <- c("sample.id","type","isolate","age","sex","tissue","disease","race","fraction","BioSample","avg_per_base_seq_qual")
+ph_data[cols] <- lapply(ph_data[cols],factor)
+
+#Make sure that ncol for gene_counts is equal to nrow for ph_data
+ncol(gene_counts)==nrow(ph_data)
+#Make sure nrows of gene_counts is wqual to nrows feature_data
+nrow(gene_counts)==nrow(feature_data)
+
+
+#Create a SummarizedExperiment object
+brain_data <- SummarizedExperiment(assay=list(counts=gene_counts),rowData=feature_data, colData = ph_data)
+
+
+```
+
+
+```{r }
+#Make tables for gender and race information 9 to see if data is unbalanced)
+table(ph_data$sex, ph_data$race)
+
+#Check distribution of expression data 
+summary(gene_counts)
+
+#Look at the age of the samples
+table(ph_data$age)
+
+#Check for NA values
+
+#Check phenotype table
+table(ph_data$age,useNA="ifany")
+sum(ph_data$age==" ")
+
+
+#Check genotype table for NAs
+sum(is.na(gene_counts))
+
+
+#Check dimensions for each type
+dim(feature_data)
+dim(gene_counts)
+dim(ph_data)
+
+```
+
+```{r }
+#Plots
+
+#Boxplot
+
+boxplot(gene_counts[,1])
+#Log2 transform data and plot
+boxplot(log2(gene_counts[,1]+1))
+
+#Plot all the samples together
+boxplot(log2(gene_counts+1), col=2,range=0)
+```
+
+```{r }
+
+#PLot Histograms
+
+par(mfrow=c(2,6))
+hist(log2(gene_counts[,1]+1),col=2)
+hist(log2(gene_counts[,2]+1),col=2)
+hist(log2(gene_counts[,3]+1),col=2)
+hist(log2(gene_counts[,4]+1),col=2)
+hist(log2(gene_counts[,5]+1),col=2)
+hist(log2(gene_counts[,6]+1),col=2)
+hist(log2(gene_counts[,7]+1),col=2)
+hist(log2(gene_counts[,8]+1),col=2)
+hist(log2(gene_counts[,9]+1),col=2)
+hist(log2(gene_counts[,10]+1),col=2)
+hist(log2(gene_counts[,11]+1),col=2)
+hist(log2(gene_counts[,12]+1),col=2)
+```
+
+```{r }
+#Plot density plots (to check for artifacts-difference in distributions)
+
+#Density plot of fetal samples
+par(mfrow=c(1,1))
+
+plot(density(log2(gene_counts[,1]+1)),col=2)
+lines(density(log2(gene_counts[,2]+1)),col=3) # to overlay
+lines(density(log2(gene_counts[,3]+1)),col=4)
+lines(density(log2(gene_counts[,4]+1)),col=5)
+lines(density(log2(gene_counts[,5]+1)),col=6)
+lines(density(log2(gene_counts[,6]+1)),col=7)
+
+#density plot of adult samples
+
+par(mfrow=c(1,1))
+
+plot(density(log2(gene_counts[,7]+1)),col=2)
+lines(density(log2(gene_counts[,8]+1)),col=3)
+lines(density(log2(gene_counts[,9]+1)),col=4)
+lines(density(log2(gene_counts[,10]+1)),col=5)
+lines(density(log2(gene_counts[,11]+1)),col=6)
+lines(density(log2(gene_counts[,12]+1)),col=7)
+
+```
+`
+```{r }
+
+#QQ plot
+qqplot(log2(gene_counts[,1]+1), log2(gene_counts[,2]+1), col=3)
+#add 45 degree line to plot
+abline(c(0,1))
+```
+
+
+```{r }
+
+#MA plot or Bland-Altmans plot (difference between 2 samples)
+
+mm = log2(gene_counts[,1]+1) - log2(gene_counts[,2]+1)
+aa = log2(gene_counts[,1]+1) + log2(gene_counts[,2]+1)
+plot(aa,mm,col=2)
+# As we get from left to right we see that for higher counts the samples get closer and closer to each other
+#We ant to have thsi centered at 0 and low variability dependent on total number of counts
+
+
+```
+
+```{r filter}
+#Remove low count genes 
+library(dplyr)
+#Conver to data frame to use dplyr filter
+edata <- as.data.frame(gene_counts)
+filt_edata <- filter(edata,rowMeans(edata)>1)
+
+dim(filt_edata)
+
+#Now make boxplot 
+boxplot(as.matrix(log2(filt_edata+1)),col=2)
+
+```
+
+```{r }
+library(gplots)
+#Multivariate plot
+#Make a heat map of highly expressed genes with clustering dendogram
+high_genes <- as.matrix(filt_edata)[rowMeans(filt_edata)>10000, ]
+heatmap(high_genes)
+#Change colors for heat map 
+coloramp = colorRampPalette(c(3,"white",2))(9)
+heatmap(high_genes,col=coloramp)
+
+
+#Make heatmap without clustering dendogram and with color key(red-high,green-low)
+heatmap.2(high_genes,col=coloramp,Rowv=NA,Colv=NA,dendogram="none",scale="row",trace="none")
+
+```
+
+
+
+
+
+```{r }
+#Get the Annotations for the gene expression file from AnnotationDbi
+library(org.Hs.eg.db)
+columns(org.Hs.eg.db)
+keytypes(org.Hs.eg.db)
+help("REFSEQ")
+
+#Working with filtered data 
+dim(filt_edata)
+# 21806    12
+
+#Get the gene names for filtered data
+filt_genes <- rownames(filt_edata)
+
+#Remove decimal point from RefSeq Accession
+filt_gene_names <- sub('\\.[0-9]*$', '', filt_genes)
+
+#Change rownames for filt_edata to filt_gene_names without decimals
+rownames(filt_edata) <- filt_gene_names
+
+dim(filt_edata)
+# 21806    12
+
+cols = c("GENENAME","ENSEMBL","SYMBOL")
+refKeys <- head(keys(org.Hs.eg.db,keytype="REFSEQ"))
+
+filt_annots <- AnnotationDbi::select(org.Hs.eg.db, keys=filt_gene_names, columns=cols, keytype="REFSEQ")
+
+#Check dimension 
+dim(filt_annots)
+dim(filt_edata)
+
+#Take non duplicted data
+filt_annots <- filt_annots[!duplicated(filt_annots[,1]), ]
+#Check dim
+dim(filt_annots)
+#21806     4
+
+#Make sure the data matches the filt_edata
+all(filt_annots[,1]==rownames(filt_edata))
+
+#Merge the Annotation with filt_edata
+filt_gene_exp_tbl <- merge(filt_edata, filt_annots, by.x=0,by.y="REFSEQ")
+#Check dim
+dim(fitl_gene_exp_tbl)
+# 21806    16
+
+```

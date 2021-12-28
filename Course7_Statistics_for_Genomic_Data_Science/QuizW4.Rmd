@@ -1,0 +1,239 @@
+---
+title: "QuizW4"
+author: "Syeda"
+date: "7/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r parameters}
+#Setup graphing parameters
+
+tropical = c("darkorange", "dodgerblue", "hotpink", "limegreen", "yellow")
+palette(tropical)
+par(pch=19)
+```
+
+```{r load_hidden, echo=FALSE, results="hide", warning=FALSE}
+suppressPackageStartupMessages({
+  library(devtools)
+  library(Biobase)
+  library(limma)
+  library(edge)
+  library(genefilter)
+})
+```
+
+```{r load}
+  library(devtools)
+  library(Biobase)
+  library(limma)
+  library(edge)
+  library(genefilter)
+  library(qvalue)
+```
+
+
+Question 1
+When performing gene set analysis it is critical to use the same annotation as was used in pre-processing steps. Read the paper behind the Bottomly data set on the ReCount database: http://www.ncbi.nlm.nih.gov/pubmed?term=21455293
+
+Using the paper and the function: supportedGenomes()|supportedGenomes() in the goseq package can you figure out which of the Mouse genome builds they aligned the reads to.
+
+```{r }
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata=pData(bot)
+edata=as.matrix(exprs(bot))
+fdata = fData(bot)
+ls()
+```
+
+```{r q1}
+#from the paper we know "All reads were realigned to the NCBI m37 version of the mouse genome assembly...google gives us mm9 and supportedGeneID's tells us it is UCSC"
+#Get matching genome
+supportedGenomes()
+supportedGeneIDs()
+```
+
+Expected Answer1: UCSC mm9
+
+
+Question 2
+Load the Bottomly data with the following code and perform a differential expression analysis using limma with only the strain variable as an outcome. How many genes are differentially expressed at the 5% FDR level using Benjamini-Hochberg correction? What is the gene identifier of the first gene differentially expressed at this level (just in order, not the smallest FDR) ? (hint: the featureNames function may be useful)
+
+
+library(Biobase)
+library(limma)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata) > 5]
+edata = edata[rowMeans(edata) > 5, ]
+edata = log2(edata+1)
+
+```{r}
+
+library(Biobase)
+library(limma)
+library(qvalue)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata) > 5]
+edata = edata[rowMeans(edata) > 5, ]
+edata = log2(edata+1)
+```  
+
+```{r q2}
+#Build Model Matrix
+mod <- model.matrix(~ pdata_bot$strain)
+#Fit the modekl using limma and strain as outcome
+fit_limma <- lmFit(edata,mod)
+#Shrink the model
+ebayes_limma <- eBayes(fit_limma)
+#Get the adjusted p-values using topTable()
+limma_adj_pvals <- topTable(ebayes_limma, adjust.method="BH",
+         sort.by="none",number=dim(edata)[1])$adj.P.Val
+
+qval_limma <- qvalue(limma_adj_pvals)
+
+summary(qval_limma)
+
+#Get 1st gene differentially expressed at 5% FDR level
+bot_genes = as.integer(limma_adj_pvals < 0.05)
+
+names(bot_genes)= rownames(edata)
+de_genes <- bot_genes == 1
+my_genes <- bot_genes[de_genes]
+
+```
+Expected Answer2: 223 at FDR 5%; ENSMUSG00000000402 first DE gene
+
+
+Question 3
+Use the nullp and goseq functions in the goseq package to perform a gene ontology analysis. What is the top category that comes up as over represented? (hint: you will need to use the genome information on the genome from question 1 and the differential expression analysis from question 2.
+
+```{r }
+library(devtools)
+library(Biobase)
+library(limma)
+library(goseq)
+library(DESeq2)
+
+```
+
+```{r q3}
+library(Biobase)
+library(limma)
+library(qvalue)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata_bot = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata_bot) > 5]
+edata_bot = edata_bot[rowMeans(edata_bot) > 5, ]
+edata_bot = log2(edata_bot+1)
+
+#Use the DE analysis from q2 to get the genes expressed below 5% FDR
+bot_genes = as.integer(limma_adj_pvals < 0.05)
+
+names(bot_genes)= rownames(edata)
+
+#Calculate Probability weight function using mm9 and ensGene
+pwf = nullp(bot_genes,"mm9","ensGene")
+
+
+#Install package "org.Mm.eg.db" from Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("org.Mm.eg.db")
+
+library("org.Mm.eg.db")
+
+go.wall <- goseq(pwf,"mm9","ensGene")
+```
+
+
+Question 5
+Load the Bottomly data with the following code and perform a differential expression analysis using \verb|limma|limma and treating strain as the outcome but adjusting for lane as a factor. Then find genes significant at the 5% FDR rate using the Benjamini Hochberg correction and perform the gene set analysis with \verb|goseq|goseq following the protocol from the first 4 questions. How many of the top 10 overrepresented categories are the same for the adjusted and unadjusted analysis?
+
+library(Biobase)
+library(limma)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata) > 5]
+edata = edata[rowMeans(edata) > 5, ]
+
+```{r}
+
+library(Biobase)
+library(limma)
+con =url("http://bowtie-bio.sourceforge.net/recount/ExpressionSets/bottomly_eset.RData")
+load(file=con)
+close(con)
+bot = bottomly.eset
+pdata_bot=pData(bot)
+fdata_bot = featureData(bot)
+edata = exprs(bot)
+fdata_bot = fdata_bot[rowMeans(edata) > 5]
+edata = edata[rowMeans(edata) > 5, ]
+edata = log2(edata+1)
+
+```
+
+```{r }
+
+#Create Model matrix
+#Convert lane number ot factor
+lane_number <- as.factor(pdata_bot$lane.number)
+#mod1 <- model.matrix(~pdata_bot$strain + pdata_bot$lane.number)
+mod1 <- model.matrix(~pdata_bot$strain + lane_number)
+fit1_limma <- lmFit(edata, mod1)
+ebayes1_limma <- eBayes(fit1_limma)
+limma1_adj_pvals <- topTable(ebayes1_limma, adjust.method="BH",
+         sort.by="none",number=dim(edata)[1])$adj.P.Val
+
+#Find genes significant at 5%FDR level
+sig_genes = as.integer(limma1_adj_pvals < 0.05)
+
+names(sig_genes)= rownames(edata)
+de1_genes <- sig_genes == 1
+new_genes <- sig_genes[de1_genes]
+
+#Calculate Probability weight function using mm9 and ensGene
+pwf1 = nullp(new_genes,"mm9","ensGene")
+
+go.wall1 <- goseq(pwf1,"mm9","ensGene")
+
+#Compare the top 10 overrepresented categories between the adjusted analysis(for lane) and unadjusted for lane
+go.wall.10 <- go.wall[1:10,]
+
+go.wall1.10 <- go.wall1[1:10,]
+
+#Look at the ontology column and see how many of those are common ..Here only BP and MF are test categories common to both 
+intersect(go.wall.10$ontology, go.wall1.10$ontology)
+
+```
+Expected Answer5: 2

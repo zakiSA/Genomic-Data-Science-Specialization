@@ -1,0 +1,386 @@
+---
+title: "Quiz2:Genomic Data Science Coursera "
+author: "Syeda Zaki"
+date: "4/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r Install_packages, echo=FALSE, cache=TRUE}
+library(AnnotationHub)
+library(BSgenome)
+
+# Look for genomes available in Bioconductor
+
+#available.genomes()
+# Install Human Genome hg19 from Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("BSgenome.Hsapiens.UCSC.hg19")
+
+```
+
+#Question1.
+
+What is the GC content of “chr22” in the “hg19” build of the human genome?
+Tip: The reference genome includes “N” bases; you will need to exclude those.
+
+```{r q1, echo=FALSE, cache=TRUE}
+#Install the masked version of Human genoem hg19 to exclude N bases
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("BSgenome")
+
+#Load the Human Genome hg19 package
+library(BSgenome.Hsapiens.UCSC.hg19.masked)
+
+# Create genome object
+genome <- BSgenome.Hsapiens.UCSC.hg19.masked
+
+# Compute GC content while excluding N bases
+GCcon <- letterFrequency(genome$chr22, "GC", as.prob = TRUE)
+
+GCcon
+
+
+```
+
+#Q1 Expected Answer: 
+G|C 
+0.4798807 
+
+
+Question 2. 
+Background: In the previous assessment we studied H3K27me3 “narrowPeak” regions from the H1 cell line (recall that the Roadmap ID for this cell line is “E003”). We want to examine whether the GC content of the regions influence the signal; in other words wether the reported results appear biased by GC content.
+
+Question: What is mean GC content of H3K27me3 “narrowPeak” regions from Epigenomics Roadmap from the H1 stem cell line on chr 22.
+
+Clarification: Compute the GC content for each peak region as a percentage and then average those percentages to compute a number between 0 and 1.
+
+```{r q2-1, echo=FALSE, cache=TRUE}
+#Load Annotation Hub
+library(AnnotationHub)
+# create an AnnotationHub instance
+ahub <- AnnotationHub()
+#Select only records for Homo sappiens
+ahub <- subset(ahub, species == "Homo sapiens")
+#Query for H3K27me3 histone modification on H1 cells
+qhs <- query(ahub, c("H3K27me3", "H1"))
+#Look at title
+#qhs$title
+#Select record E003 for narrow peaks, record number 7
+h3k27 <- qhs[[7]]
+#Get narrow peaks for chr22 record only
+h3k27chr22 <- keepSeqlevels(h3k27, "chr22", pruning.mode = "coarse")
+
+
+```
+
+
+
+```{r q2-2, echo = FALSE, cache=TRUE}
+
+#Create Views object to get the actual nucleotides corresponding to ranges
+vi <- Views(genome, h3k27chr22)
+vi
+
+# Compute GC content on the views object
+GCvi <- letterFrequency(vi, "GC", as.prob = TRUE)
+
+#Compute the mean of GC content
+mean(GCvi)
+
+```
+
+#Q2 Expected Answer
+0.528866
+
+Q3 The “narrowPeak” regions includes information on a value they call “signalValue”.
+
+Question: What is the correlation between GC content and “signalValue” of these regions (on chr22)?
+
+```{r q3, echo=FALSE,cache=TRUE}
+#Convert the Views object int o data frame
+vi_df <- as.data.frame(vi)
+
+#Extract signalVlaue column
+signal_val <- vi_df$signalValue
+
+# Find correlation between GC content of the region and the signal value
+cor(GCvi, signal_val)
+
+```
+
+#Q3 Expected Answer
+G|C 0.004467924
+
+Question 4
+
+The “narrowPeak” regions are presumably reflective of a ChIP signal in these regions. To confirm this, we want to obtain the “fc.signal” data from AnnotationHub package on the same cell line and histone modification. This data represents a vector of fold-change enrichment of ChIP signal over input.
+
+Question: what is the correlation between the “signalValue” of the “narrowPeak” regions and the average “fc.signal” across the same regions?
+
+Clarification: First compute the average “fc.signal” for across each region, for example using “Views”; this yields a single number of each region. Next correlate these numbers with the “signalValue” of the “narrowPeaks”.
+
+
+
+```{r q4,echo=FALSE,cache=TRUE}
+
+library(AnnotationHub)
+#Instantiate AnnotationHub object
+ah <- AnnotationHub()
+#Subset AnnotationHub to get "fc.signal" BigWig file #for Homosapiens
+ah <- subset(ah, species == "Homo sapiens")
+#Query to get records corresponding to H3K27me3 histone modification of H1 cell line
+qhs <- query(ahub, c("H3K27me3", "H1"))
+#Look at title
+#qhs$title
+# Select record 
+fc.bw <- qhs[[17]]
+
+#Import the bw file and GRanges we created for h3k27 #as Rle
+e003.fc.rl <- import(fc.bw, which=h3k27chr22, as = "Rle")
+#Select the Rle for chr22
+e003.fc.chr22.rl <- e003.fc.rl$chr22
+#Create Views on the Rle for chr22 and Rnages for #h3k27chr22
+e003.signal.views <- Views(e003.fc.chr22.rl, start = start(h3k27chr22), end = end(h3k27chr22))
+e003.signal.views
+#Compute mean for the fc signal
+e003.signal.mean <- mean(e003.signal.views)
+#Compute correlation between fc signal mean and #signal value we extracted earlier
+cor(e003.signal.mean, signal_val)
+```
+#Q4 Expected Answer
+0.9149614
+
+Q5: Referring to the objects made and defined in the previous question.
+
+Question: How many bases on chr22 have an fc.signal greater than or equal to 1?
+
+```{r q5, echo=FALSE,cache=TRUE}
+#Import the BigWigFile and GRanges for entire chr22
+e003_sig_data <- import(fc.bw, which=GRanges("chr22", ranges = IRanges(1,10^8)))
+#Subset to get the records with fc.signal >= 1
+e003_values <- subset(e003_sig_data, e003_sig_data$score >= 1)
+#Sum the widths to calculate the number of bases 
+sum(width(e003_values))
+```
+#Q5 Expected Answer
+10914671
+
+Q6
+
+The H1 stem cell line is an embryonic stem cell line, a so-called pluripotent cell. Many epigenetic marks change upon differentiation. We will examine this. We choose the cell type with Roadmap ID “E055” which is foreskin fibroblast primary cells.
+
+We will use the “fc.signal” for this cell type for the H3K27me3 mark, on chr22. We now have a signal track for E003 and a signal track for E055. We want to identify regions of the genome which gain H3K27me3 upon differentiation. These are regions which have a higher signal in E055 than in E003. To do this properly, we would need to standardize (normalize) the signal across the two samples; we will ignore this for now.
+
+Question: Identify the regions of the genome where the signal in E003 is 0.5 or lower and the signal in E055 is 2 or higher.
+
+Tip: If you end up with having to intersect two different Views, note that you will need to convert the Views to IRanges or GRanges first with \verb|ir <- as(vi, "IRanges")|ir <- as(vi, "IRanges").
+
+```{r 6, echo=FALSE,cache=TRUE}
+#Import the e003 bw file and GRanges we created for h3k27 as Rle
+e003.fc.gr <- import(fc.bw, which=GRanges("chr22", ranges=IRanges(1,10^8)))
+#Select regions which have signal lower than 0.5
+e003.low <- subset(e003.fc.gr,e003.fc.gr$score<=0.5)
+
+
+
+#Instantiate AnnotationHub object
+anhub <- AnnotationHub()
+#Subset AnnotationHub to get "fc.signal" BigWig file for Homosapiens
+anhub <- subset(anhub, species == "Homo sapiens")
+#Query to get records corresponding to H3K27me3 histone modification of E055-H3K27me3 fc signal file
+qh <- query(anhub, c("H3K27me3", "E055"))
+#Look at title
+qh$title
+#Select the bw file for fc signal
+bw.e055 <- qh[["AH32470"]]
+#Import e055 bw file and GRanges we created for h3k27 as Rle
+e055.fc.gr <- import(bw.e055, which=GRanges("chr22", ranges=IRanges(1,10^8)))
+#Select regions of e055 where signal is greater than 2
+e055.high <- subset(e055.fc.gr, e055.fc.gr$score>=2)
+
+
+#Intersect the two tracks
+my_values <- intersect(e003.low, e055.high)
+total_bases <- sum(width(my_values))
+total_bases
+```
+#Q6 Expected Answer
+1869937
+
+Question7. 
+
+CpG Islands are dense clusters of CpGs. The classic definition of a CpG Island compares the observed to the expected frequencies of CpG dinucleotides as well as the GC content.
+
+Specifically, the observed CpG frequency is just the number of “CG” dinucleotides in a region. The expected CpG frequency is defined as the frequency of C multiplied by the frequency of G divided by the length of the region.
+
+Question: What is the average observed-to-expected ratio of CpG dinucleotides for CpG Islands on chromosome 22?
+
+
+```{r 7, echo=FALSE,cache=TRUE}
+library(BSgenome)
+library("BSgenome.Hsapiens.UCSC.hg19")
+Hsapiens
+#Instantiate AnnotationHub
+ah1 <- AnnotationHub()
+#Subset for Homo ssapiens
+ah1 <- subset(ah1, species == "Homo sapiens")
+#Query for CpG isalnds
+qh1 <- query(ah1, "CpG islands")
+# Select first record
+CpGislands <- ah1[["AH5086"]]
+#Get chr22 from the record
+CpGchr22 <- keepSeqlevels(CpGislands, "chr22", pruning.mode = "coarse")
+
+#Create Views on the Hsapiens to view CpG region bases of chr22
+vi_CpG <- Views(Hsapiens,CpGchr22)
+vi_CpG
+# Compute CG dinucleotide frequency to get observed CpG frequency 
+di_frequency <- dinucleotideFrequency(vi_CpG)
+di_frequency_df <- as.data.frame(di_frequency)
+CG_difrequency <- di_frequency_df$CG
+
+
+#From views get the Alphabet frequency
+alph_freq <- alphabetFrequency(vi_CpG)
+# Convert it int  data frame
+alpha_freq_df <- as.data.frame(alph_freq)
+# Compute the product of C's and G's
+alpha_freq_df$CG_freq <- alpha_freq_df$C * alpha_freq_df$G 
+#Get sum of total bases for each row
+alpha_freq_df$total_bases <- rowSums(alpha_freq_df[,c(1,2,3,4)])
+#Combine the data frames into one
+df <- cbind(alpha_freq_df, CG_difrequency)
+#Compute the CpG expected frequency
+df$exp <- df$CG_freq / df$total_bases
+#Get the ratio of the observed to expected CpG frequency
+df$obs_exp <- df$CG_difrequency / df$exp
+# Compute the mean to get the average observed to expected ratio for CpG islands
+mean(df$obs_exp)
+```
+#Q7 Expected Answer
+0.8340929
+
+
+Question 8
+A TATA box is a DNA element of the form “TATAAA”. Around 25% of genes should have a TATA box in their promoter. We will examine this statement.
+
+Question: How many TATA boxes are there on chr 22 of build hg19 of the human genome?
+
+Clarification: You need to remember to search both forward and reverse strands.
+```{r 8-option1, echo=FALSE,cache=TRUE}
+# Option 1
+#Load the Human Genome hg19
+library(BSgenome.Hsapiens.UCSC.hg19)
+chr22 <- Hsapiens$chr22
+# Count number of TATAAA on forwad sttring
+fwd_count <- countPattern("TATAAA", chr22)
+# Get the backward string
+chr22.rev <- reverseComplement(chr22)
+rev_count <- countPattern("TATAAA", chr22.rev)
+total <- fwd_count + rev_count
+total
+
+```
+#Q8 Expected Answer
+27263
+
+```{r 8-option2, echo=FALSE,cache=TRUE}
+# Option 2
+#Load the Human Genome hg19
+library(BSgenome.Hsapiens.UCSC.hg19)
+# Create DNAString for TATAAA pattern
+tata_seq <- DNAString("TATAAA")
+# Match pattern to human genome
+tata_match <- vmatchPattern(tata_seq, Hsapiens)
+# Keep only matches for chr22
+tata_chr22 <- keepSeqlevels(tata_match, "chr22", pruning.mode = "coarse")
+tata_chr22
+# To view TATAAA box on each range
+tata_vi <- Views(Hsapiens, tata_chr22)
+tata_vi
+```
+#Q8 Expected Answer
+27263
+
+Question 9
+Question: How many promoters of transcripts on chromosome 22 containing a coding sequence, contains a TATA box on the same strand as the transcript?
+
+Clarification: Use the TxDb.Hsapiens.UCSC.hg19.knownGene package to define transcripts and coding sequence. Here, we defined a promoter to be 900bp upstream and 100bp downstream of the transcription start site.
+
+
+```{r 9, echo=FALSE,cache=TRUE}
+library(AnnotationHub)
+ah2 <- AnnotationHub()
+qh2 <- query(ah2, c("homo sapiens", "genes"))
+genes <- qh2[["AH5036"]]
+prom <- promoters(genes, upstream=900, downstream=100)
+my_prom <- subset(prom, seqnames == "chr22")
+gr <- as(my_prom, "GRanges")
+
+library(GenomicFeatures)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+#Create txdb object
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+
+df <- subset(transcriptLengths(txdb, with.cds_len = TRUE))
+# Subset to get transcripts with coding sequences
+df_cds <- subset(df, df$cds_len>0)
+# Get names of transcripts with coding sequences
+tx_names <- df_cds$tx_name
+tx_gr <- subsetByOverlaps(transcripts(txdb), gr)
+#Get the transcripts
+my_txs <- tx_gr[tx_gr$tx_name %in% tx_names]
+#Get the promoters
+txs_prom <- promoters(my_txs, upstream = 900, downstream = 100)
+# 
+
+my_proms <- subsetByOverlaps(tata_chr22, txs_prom)
+library(BSgenome.Hsapiens.UCSC.hg19)
+my_proms_vi <- Views(Hsapiens, my_proms)
+my_proms <- subsetByOverlaps(txs_prom, tata_chr22)
+length(my_proms)
+```
+#Q9 Expected Answer
+193
+
+
+Question 10.
+
+It is possible for two promoters from different transcripts to overlap, in which case the regulatory features inside the overlap might affect both transcripts. This happens frequently in bacteria.
+
+Question: How many bases on chr22 are part of more than one promoter of a coding sequence?
+
+Clarification: Use the TxDb.Hsapiens.UCSC.hg19.knownGene package to define transcripts and coding sequence. Here, we define a promoter to be 900bp upstream and 100bp downstream of the transcription start site. In this case, ignore strand in the analysis.
+
+```{r 10, echo=FALSE, cache=TRUE}
+# Get all the promoters for transcripts of Chr22 with a coding sequence, ie txs_prom from Q9
+txs_prom
+#Find coverage for the above
+cvg_full <- coverage(txs_prom)
+# Select only Chr22
+cvg_all_chr22 <- cvg_full$chr22
+cvg_all_chr22
+# Selct those with coverage lower value 2
+cvg_all_chr22_slice <- slice(cvg_all_chr22,2)
+cvg_all_chr22_slice
+#Count the bases present in these regions
+sum(width(cvg_all_chr22_slice))
+
+```
+#Q10 Expected Answer
+306920
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```

@@ -1,0 +1,461 @@
+---
+title: "Quiz 4"
+author: "Syeda"
+date: "5/2/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1.
+Question 1
+The yeastRNASeq experiment data package contains FASTQ files from an RNA seq experiment in yeast. When the package is installed, you can access one of the FASTQ files by the path given by
+
+library(yeastRNASeq)
+fastqFilePath <- system.file("reads", "wt_1_f.fastq.gz", package = "yeastRNASeq")
+
+
+```{r 1,echo=FALSE}
+#Install and load the yeastRNASeq library
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("yeastRNASeq")
+
+# load library
+library(yeastRNASeq)
+
+fastqFilePath <- system.file("reads", package = "yeastRNASeq")
+
+#Install shortRead package
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("ShortRead")
+
+#load package
+library(ShortRead)
+
+#Create pointer to fastq file
+fastqPath <- list.files(fastqFilePath, pattern = "wt_1_f.fastq.gz", full.names = TRUE)[1]
+
+reads <- readFastq(fastqPath)
+reads
+# Read file with a file object (using a pointer to the fastq file)
+fqFile <- FastqFile(fastqPath)
+
+#Read in file
+my_reads <- sread(reads)
+# Convert to data frame
+reads_df <- as.data.frame(my_reads)
+# Get the coluumn with sequences
+sequences <- reads_df$x
+# Count the number of sequences with A as 5th base
+num_a <- length(grep("^.{4}A", sequences))
+# Get total number of reads
+total_reads <- dim(reads_df)[1]
+# Fraction of reads that have A as th e5th base
+num_a/total_reads
+```
+
+Expected answer: 0.3638
+
+
+
+Question 2
+This is a continuation of Question 1.
+
+Question: What is the average numeric quality value of the 5th base of these reads?
+
+```{r 2, echo=FALSE}
+reads_qual <- quality(reads)
+# Convert to matrix of integer values and get 1st 5 columns
+qual_mtx <-as(quality(reads), "matrix")[1:length(reads), 1:5]
+# Get the col 5 qual values
+base_qual <- qual_mtx[,5]
+#Compute average
+mean(base_qual)
+
+```
+
+Expected answer: 28.93
+
+
+Question 3
+The leeBamViews experiment data package contains aligned BAM files from an RNA seq experiment in yeast (the same experiment as in Questions 1 and 2, but that is not pertinent to the question). You can access one of the BAM files by the path given by
+
+ibrary(leeBamViews)
+bamFilePath <- system.file("bam", "isowt5_13e.bam", package="leeBamViews")
+
+
+```{r 3, echo=FALSE}
+# Install Rsamtools
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Rsamtools")
+
+# load package
+library(Rsamtools)
+
+# Install leeBamViews package
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("leeBamViews")
+
+# load leeBamViews
+library(leeBamViews)
+
+bamFilePath <- system.file("bam", "isowt5_13e.bam", package="leeBamViews")
+
+# Instantiate the BAM file instance
+bamFile <- BamFile(bamFilePath)
+
+# Read bam file
+aln <- scanBam(bamFile)
+# Get names of the list object
+aln <- aln[[1]]
+
+# Create GRanges for chr13 interval of intrest
+gr <- GRanges(seqnames = "Scchr13", ranges = IRanges(start = 800000, end = 801000))
+
+#Setup ScanBamParam
+params <- ScanBamParam(which = gr, what = scanBamWhat())
+
+#aln1 <- scanBam(bamFile, param = params)
+#The ranges we are wuerying bam file with
+#names(aln1)
+
+
+#Setting up bam views
+bamView <- BamViews(bamFilePath)
+aln <- scanBam(bamView)
+names(aln)
+names(aln[[1]][[1]])
+
+# Set GRanges in bamView
+
+bamRanges(bamView) = gr
+aln <- scanBam(bamView)
+names(aln[[1]])
+
+aln_tbl <- table(table(aln[[1]][[1]]$pos))
+
+#Get the numbr of reads that are not duplicated
+num_uniq <- aln_tbl[1][[1]]
+
+# Total number of reads in this region
+total_reads <- length((aln)[[1]][[1]]$pos)
+
+#Number of reads that are duplicated
+total_reads - num_uniq
+```
+
+Expected answer: 129
+
+
+Question 4
+This is a continuation of Question 3.
+
+The package contains 8 BAM files in total, representing 8 different samples from 4 groups. A full list of file paths can be had as
+
+
+bpaths <- list.files(system.file("bam", package="leeBamViews"), pattern = "bam$", full=TRUE)
+
+An objective of the original paper was the discovery of novel transcribed regions in yeast. One such region is Scchr13:807762-808068.
+
+Question: What is the average number of reads across the 8 samples falling in this interval?
+
+```{r 4, echo=FALSE}
+bpaths <- list.files(system.file("bam", package="leeBamViews"), pattern = "bam$", full=TRUE)
+# Read in multiple bam files with BamViews
+bamView <- BamViews(bpaths)
+
+#
+aln1 <- scanBam(bamView)
+# Gets the outermost level of the list
+names(aln1)
+#Gets first element of list
+names(aln1)[[1]]
+# Gets anmes for all elemts for each elemnt of list
+names(aln1[[1]][[1]])
+
+
+#Create GRanges for region of intrest
+gr1 <- GRanges(seqnames = "Scchr13", ranges = IRanges(start = 807762, end = 808068))
+
+# Put ranges onto BamView
+bamRanges(bamView) <- gr1
+#Now call scanBam on BamView
+aln2 <- scanBam(bamView)
+#We get object similar to before
+#List of all bam files
+names(aln2)
+# The region of interest from where reads are taken
+names(aln2[[1]])
+
+#Get number of reads for all files
+bam1_reads <- length(aln2[[1]]$`Scchr13:807762-808068`$seq)
+bam2_reads <- length(aln2[[2]]$`Scchr13:807762-808068`$seq)
+bam3_reads <- length(aln2[[3]]$`Scchr13:807762-808068`$seq)
+bam4_reads <- length(aln2[[4]]$`Scchr13:807762-808068`$seq)
+bam5_reads <- length(aln2[[5]]$`Scchr13:807762-808068`$seq)
+bam6_reads <- length(aln2[[6]]$`Scchr13:807762-808068`$seq)
+bam7_reads <- length(aln2[[7]]$`Scchr13:807762-808068`$seq)
+bam8_reads <- length(aln2[[8]]$`Scchr13:807762-808068`$seq)
+
+#Get the average number of reads across this region for all files
+mean_reads <- sum(bam1_reads,bam2_reads,bam3_reads,bam4_reads,bam5_reads,bam6_reads,bam7_reads,bam8_reads)/8
+mean_reads
+```
+
+Expected answer: 90.25
+
+
+Question 5
+In the lecture on the oligo package an ExpressionSet with 18 samples is constructed, representing normalized data from an Affymetrix gene expression microarray. The samples are divided into two groups given by the \verb|group|group variable.
+
+Question: What is the average expression across samples in the control group for the “8149273” probeset (this is a character identifier, not a row number).
+
+```{r 5, echo=FALSE}
+
+library(oligo)
+library(GEOquery)
+# Get the supplemantary files (CEL files)
+glibrary(GEOquery)
+#Get CEL files
+getGEOSuppFiles("GSE38792")
+# List CEL files
+list.files("GSE38792")
+# Untar CEL files
+untar("GSE38792/GSE38792_RAW.tar", exdir = "GSE38792/CEL")
+#Look at files
+list.files("GSE38792/CEL")
+celfiles <- list.files("GSE38792/CEL", full = TRUE)
+#Read data from CEL files into data container
+rawData <- read.celfiles(celfiles)
+rawData
+# See the Expression Data
+exprs(rawData)[1:4,1:3]
+
+#Clean pheno Data
+# Get the sample names from rawData
+filename <- sampleNames(rawData)
+#Add  sample names column inside pData 
+pData(rawData)$filename <- filename
+
+# Simplify the filenames
+sampleNames <- sub(".*_", "", filename)
+sampleNames <- sub(".CEL.gz$", "", sampleNames)
+
+# Change the sample names for rawData with simplified names
+sampleNames(rawData) <- sampleNames
+
+#Create group variable for the data
+# If the sampleName contains OSA then assign it ot group "OSA" otherwise to "Control"
+pData(rawData)$group <- ifelse(grepl("^OSA", sampleNames(rawData)), "OSA", "Control")
+
+# Normalize data
+normData <- rma(rawData)
+expr_data <- exprs(normData)
+expr_tbl <- as.data.frame(expr_data)
+#Subset the table to get the probeset 
+my_row <- subset(expr_tbl, rownames(expr_tbl) == "8149273")
+
+library(tidyverse)
+my_row <- as.tibble(my_row)
+#Select all control samplles
+my_row <- my_row %>% select(1:8)
+#Average expression value
+rowSums(my_row)/8
+
+
+```
+Expected answer: 7.02183
+
+
+Question 6
+
+This is a continuation of Question 5.
+
+Use the limma package to fit a two group comparison between the control group and the OSA group, and borrow strength across the genes using \verb|eBayes()|eBayes(). Include all 18 samples in the model fit.
+
+Question: What is the absolute value of the log foldchange logFC of the gene with the lowest P.value.
+
+```{r 6, echo=FALSE}
+library(limma)
+
+#Look at groups in normData
+normData$group
+table(normData$group)
+
+#Set factor level for normData
+normData$group <- factor(normData$group)
+normData$group
+
+#Design matrix
+design <- model.matrix(~ normData$group)
+fit <- lmFit(normData, design)
+fit <- eBayes(fit)
+
+table_fit <- topTable(fit)
+# Get the lowest P.value
+min(table_fit$P.Value)
+#Get the LogFc for the gene with this P.value
+#8139843
+#The absolute corresponding LogFc value
+#0.7126484
+```
+
+Expected Answer: 0.7126484
+
+7.
+Question 7
+This is a continuation of Question 6.
+
+Question: How many genes are differentially expressed between the two groups at an adj.P.value cutoff of 0.05?
+
+
+```{r 7, echo=FALSE}
+#Count how many genes have adj.P.Val < 0.05
+sum(table_fit$adj.P.Val < 0.05)
+
+```
+
+Expected answer: 0
+
+
+
+Question 8
+An example 450k dataset is contained in the minfiData package. This dataset contains 6 samples; 3 cancer and 3 normals. Cancer has been shown to be globally hypo-methylated (less methylated) compared to normal tissue of the same kind.
+
+Take the RGsetEx dataset in this package and preprocess it with the preprocessFunnorm function. For each sample, compute the average Beta value (percent methylation) across so-called OpenSea loci.
+
+Question: What is the mean difference in beta values between the 3 normal samples and the 3 cancer samples, across OpenSea CpGs?
+
+
+```{r 8, echo=FALSE}
+
+#Load libraries
+library(minfi)
+#Load the RGSetEx by loading the minfiData package
+library(minfiData)
+RGsetEx
+
+#Look at pData for RGSetEx
+pData(RGsetEx)
+
+# Preprocess the data using Funnorm function
+grSet <- preprocessFunnorm(RGsetEx)
+gr2=grSet[getIslandStatus(grSet)=="OpenSea",]
+percent_meth <- getBeta(gr2)
+
+col_sum <- colSums(percent_meth)
+#Get the mean for normal samples
+norm1_mean <- 122697.6/176047
+norm2_mean <- 124895.0/176047
+norm3_mean <- 124339.4/176047
+mean_norm <- (norm1_mean + norm2_mean + norm3_mean)/3
+
+
+
+#Gett the mean for the cancer samples
+can1_mean <- 106332.2/176047
+can2_mean <- 113262.8/176047
+can3_mean <- 105524.5/176047
+mean_can <- (can1_mean + can2_mean + can3_mean)/3
+
+mean_norm - mean_can
+```
+Expected answer: 0.0846
+
+
+
+Question 9
+This is a continuation of Question 8.
+
+The Caco2 cell line is a colon cancer cell line profiled by ENCODE. Obtain the narrowPeak DNase hyper sensitive sites computed by the analysis working group (AWG).
+
+Question: How many of these DNase hypersensitive sites contain one or more CpGs on the 450k array?
+
+
+```{r 9,echo=FALSE}
+library(AnnotationHub)
+ahub <- AnnotationHub()
+ahub <-  subset(ahub, species == "Homo sapiens")
+# Query to get Caco2 ENCODE data
+qhs <- query(ahub, c("ENCODE", "Caco2"))
+# Get the ENCODE narrow peak data set
+peak_gr <- qhs[["AH22442"]]
+
+# Find overlapping regions between peaks and normalized RGSetEx 
+gr_olap <- subsetByOverlaps(peak_gr, grSet, ignore.strand = FALSE)
+#Get the length of overlaps to get number of DNAase hypersensitive #sites that contain one or more CpG
+length(gr_olap)
+
+```
+
+Expected answer: 40151
+
+Question 10
+The zebrafishRNASeq package contains summarized data from an RNA-seq experiment in zebrafish in the form of a data.frame called zfGenes. The experiment compared 3 control samples to 3 treatment samples.
+
+Each row is a transcript; the data.frame contains 92 rows with spikein transcripts; these have a rowname starting with “ERCC”. Exclude these rows from the analysis.
+
+Use DESeq2 to perform a differential expression analysis between control and treatment. Do not discard (filter) genes and use the padj results output as the p-value.
+
+Question: How many features are differentially expressed between control and treatment (ie. padj <= 0.05)?
+
+
+```{r 10, echo=FALSE}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("zebrafishRNASeq")
+
+library(zebrafishRNASeq)
+#Load the data set zfGenes
+data("zfGenes")
+
+library(DESeq2)
+library(edgeR)
+# Remove transcripts with names starting with "ERCC"
+zf_only <- subset(zfGenes, !grepl("^ERCC",rownames(zfGenes)))
+
+
+#Creat Coldata
+coldata <- data.frame(samples = c("Ctl1", "Ctl3","Ctl5","Trt9","Trt11","Trt13"), Group = c("Ctl","Ctl","Ctl","Trt","Trt","Trt"), stringsAsFactors = TRUE)
+# Convert Group to factor before putting into DESeqDataSet
+coldata$Group <- as.factor(coldata$Group)
+
+#Read into DeSeqDataSet container from counts matrix object
+dds <- DESeqDataSetFromMatrix(countData = zf_only,
+                              colData = coldata,
+                              design= ~ Group)
+
+# Fit the model
+dds1 <- DESeq(dds)
+
+#Get results
+res <- results(dds1)
+
+#Reorder based on padj
+res1 <- res[order(res$padj),]
+
+#Remove NA from res1
+rm_na_padj <- subset(res1, res$padj != "NA")
+
+#Get the number of genes that have padj less than or equal to 0.05
+rm_na_padj$padj <= 0.05
+
+#Count the number of TRUE
+#90
+```
+
+Expected answer: 87
+
+
+

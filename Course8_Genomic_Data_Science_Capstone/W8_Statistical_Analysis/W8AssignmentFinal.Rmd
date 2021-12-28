@@ -1,0 +1,728 @@
+---
+title: "W8FinalAssignment"
+author: "Syeda"
+date: "9/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE, warning = FALSE)
+```
+
+```{r load_hidden, echo=FALSE, results="hide", warning=FALSE}
+library(gplots)
+library(devtools)
+library(Biobase)
+library(SummarizedExperiment)
+devtools::install_github('alyssafrazee/RSkittleBrewer')
+library(RSkittleBrewer)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(dplyr)
+library(tibble)
+library(edgeR)
+library(limma)
+library(DESeq2)
+```
+
+```{r theme}
+#Set the theme for plots
+custom = c('darkorange','dodgerblue','hotpink','limegreen','yellow','red','purple','green','lightblue','lightpink','darkblue')
+palette(custom)
+par(pch=19)
+```
+
+# Hypothesis
+H0 - Null hypothesis is that the relationship between sample type or age (fetal vs adult) and expression is exactly zero.
+
+H1 - Alternative Hypothesis is that the relationship between sample type or age is not zero
+
+
+Load the Data 
+
+```{r }
+#Gene Expression Data
+#Read in the gene expression file with counts and preprocess
+gene_counts <- read.delim("feature_counts.txt", stringsAsFactors = FALSE)
+#Remove integer row names and set gene id as row names
+rownames(gene_counts) <- gene_counts[,1]
+#Now delete the gene.id column
+gene_counts <- gene_counts[,2:13]
+#Remove the decimal portion of RefSeq Accesion id
+new_genes <- rownames(gene_counts)
+new_genes <- sub('\\.[0-9]*$', '', new_genes)
+#Change row names of gene counts to new names without decimals
+rownames(gene_counts) <- new_genes
+#head(gene_counts)
+
+#Phenotype data
+#Read in the file with sample data 
+p_data <- read.delim("PhenotypeData2.txt", header=TRUE, stringsAsFactors = FALSE)
+#Convert columns to factors
+cols <- c("sample.id","type","isolate","age","sex","tissue","disease","race","RIN","fraction","BioSample","avg_per_base_seq_qual")
+p_data[cols] <- lapply(p_data[cols],factor)
+#head(p_data)
+
+#Create feature data frame and add annotation
+feature_data <- data.frame(rownames(gene_counts))
+#Add annotation to feature data
+rownames(feature_data) <- rownames(gene_counts)
+
+
+#Preprocess feature data 
+#Select the columns we want to download from AnnotationDbi
+cols = c("GENENAME","ENSEMBL","SYMBOL")
+
+#Look at some of the keys from REFSEQ
+refKeys <- head(keys(org.Hs.eg.db,keytype="REFSEQ"))
+
+feature_annots <- AnnotationDbi::select(org.Hs.eg.db, keys=new_genes, columns=cols, keytype="REFSEQ")
+
+#Check dimension 
+#dim(feature_annots)
+#dim(feature_data)
+
+#Take out duplicted data
+feature_annots <- feature_annots[!duplicated(feature_annots[,1]), ]
+#Check dim
+#dim(feature_annots)
+
+#Make sure the data matches the feature_data
+#all(feature_annots[,1]==rownames(feature_data))
+
+#Merge the Annotation with feature_data
+feature_df <- merge(feature_data, feature_annots, by.x=0,by.y="REFSEQ")
+
+#dim(feature_df)
+
+#Remove first column from feature data 
+library(dplyr)
+feature_df <- select(feature_df, -1)
+#head(feature_df)
+```
+
+### Differential Gene Expression Analysis using DESeq2
+For the differential gene expression analysis with DESeq2 we will use un-normalized original count data as input.
+```{r }
+# Differential Gene Experssion Analysis(https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input)
+### Create DESeq container with expression data and phenotype data 
+ 
+#Fitting many negative binomial regressions at once
+#Put data into DESeq2 container object from SummarizedExperiment
+
+brain_dds <- DESeqDataSetFromMatrix(gene_counts, p_data, design = ~ type)
+```
+
+Filter to remove lowly expressed genes
+
+```{r }
+keep <- rowSums(counts(brain_dds)) >= 10 
+brain_dds <- brain_dds[keep]
+#dim(tmp)
+# 22871    12
+```
+
+Check Reference Levels for phenotype
+```{r }
+brain_dds$type
+
+#fetal fetal fetal fetal fetal fetal adult adult adult adult adult adult
+#Levels: adult fetal
+```
+
+
+Differential Expression Analysis using DESeq
+The DESeq() will do the following in a single step
+* estimating size factors
+* estimating dispersions
+* gene-wise dispersion estimates
+* mean-dispersion relationship
+* final dispersion estimates
+* fitting model and testing
+
+
+```{r }
+
+brain_dds <- DESeq(brain_dds)
+brain_res <- results(brain_dds)
+brain_res
+```
+
+p-values and adjusted p-values
+
+```{r }
+
+brain_resOrdered <- brain_res[order(brain_res$pvalue), ]
+summary(brain_resOrdered)
+
+sum(brain_res$padj < 0.1, na.rm=TRUE)
+sum(brain_res$padj < 0.05, na.rm=TRUE)
+```
+
+
+Optimizing the number of genes which will have an adjusted p value below a given FDR cutoff, alpha =0.05
+
+```{r }
+
+brain_res05 <- results(brain_dds,alpha = 0.05)
+summary(brain_res05)
+
+sum(brain_res05$padj < 0.05, na.rm = TRUE)
+
+
+brain_res05Ordered <- brain_res05[order(brain_res05$pvalue), ]
+```
+
+
+#For week 9
+
+```{r }
+
+#Get the genes which are down regulated
+down_genes <- brain_res05Ordered[order(brain_res05Ordered$log2FoldChange), ]
+#Get the genes which are only downregulated (logfcc is negative) approx top 11,000 of the above
+down_genes2 <- down_genes[1:11000, ]
+
+#Get genes which are most upregulated
+up_genes <- brain_res05Ordered[order(brain_res05Ordered$log2FoldChange, decreasing = TRUE),  ]
+#We will tak etop 12000 of the above
+up_genes2 <- up_genes[1:12000, ]
+
+```
+
+
+WEEK 9 Peaks and Promoters
+
+```{r }
+#UPREGULATED GENES TRIAL
+
+#We will use the diffrentially expressed genes from the previous week
+diffexp_genes <- rownames(brain_res05Ordered)
+
+#Write the  differentially expressd genes to file
+write.csv(diffexp_genes, file="ref_genesW9")
+
+
+
+
+####################################################################################
+#TRIAL
+#We will get the names of the upregulated genes 
+upreg_genes <- rownames(up_genes2)
+
+#Write the up-regulated genes to file
+write.csv(upreg_genes,file="upreg_genes")
+
+# Convert upregulted genes to GRanges
+upregulated_genes <- read.delim("upregulated_genes",header=TRUE)
+upreg_genes_df <- DataFrame(upregulated_genes)
+upreg_gr <- makeGRangesFromDataFrame(upreg_genes_df, start.field = "txStart", end.field = "txEnd",keep.extra.columns = TRUE)
+###############################################################################################
+```
+
+
+```{r }
+
+#Then use UCSC table browser to download gene coordinates for ref_genesW9
+diff_exp_genes <- read.delim("diffexp_genes",header=TRUE)
+
+#Convert it into a DataFrame
+diff_exp_genes_df <- DataFrame(diff_exp_genes)
+
+#Now convert into GRanges object(we give it the start and end co-ordiantes of the pre_mrna of transcripts)
+diff_exp_gr <- makeGRangesFromDataFrame(diff_exp_genes_df, start.field = "txStart", end.field = "txEnd",keep.extra.columns = TRUE)
+
+```
+
+
+Fetal Sample: Enrichment of promoters in diffrentially expressed genes of fetal samples (are marked by H3K4me3)
+```{r }
+#Get the fetal brain peak data from roadmap project from Annotation Hub
+library(AnnotationHub)
+ahub <- AnnotationHub()
+
+ahub <- subset(ah, species == "Homo sapiens")
+
+qhs <- query(ahub, c("EpigenomeRoadMap","Fetal_Brain","H3K4me3","narrowPeak"))
+
+epi_gr <- qhs[["AH43854"]] 
+epi_gr2 <- qhs[["AH44719"]] 
+epi_gr3 <- qhs[['AH44720']]
+epi_gr4 <- qhs[["AH44718"]]
+
+
+summary(width(epi_gr))
+summary(width(epi_gr2))
+summary(width(epi_gr3))
+summary(width(epi_gr4))
+
+table(width(epi_gr))
+table(width(epi_gr2))
+
+#AH43854 | BI.Fetal_Brain.H3K4me3.UW_H-22510.narrowPeak.gz    
+peaks <- epi_gr2
+peaks <- epi_gr3
+
+peaks <- epi_gr #trying
+#Are these peaks enriched in promoters
+
+#To check how many transcripts dow ehave per gene
+
+table(table(diff_exp_genes_df$name))
+
+#Find promoters for diff_exp_gr
+prom <- promoters(diff_exp_gr)
+
+#Check width of promoters
+table(width(prom))
+args(promoters)
+
+#Is H3K4me3 enriched in promoters of fetal brain sample
+#Check for Overlaps between Promoters and Peaks for fetal
+
+ov_fetal <- findOverlaps(prom,peaks)
+#We need only number of unique hits
+length(unique(queryHits(ov_fetal))) 
+#17259
+
+length(unique(subjectHits(ov_fetal)))
+#14479
+
+#Check out of my peaks how many overlap a promoter
+length(subsetByOverlaps(peaks, prom, ignore.strand = TRUE))
+#14479
+
+#Get percentage of peaks that overlap a promoter
+length(subsetByOverlaps(peaks, prom, ignore.strand = TRUE))/length(peaks)
+#0.335426
+
+#How many promoter have a peak in it
+length(subsetByOverlaps(prom, peaks, ignore.strand = TRUE))/length(prom)
+# 0.7338634
+
+#How many bases does the peak really cover in mega bases
+sum(width(reduce(peaks, ignore.strand = TRUE)))/10^6
+# ~ 50 MB
+
+#How many MB do the promoter cover
+sum(width(reduce(prom, ignore.strand = TRUE)))/10^6
+# 43.49326 MB
+
+#How big is the overlap
+sum(width(intersect(peaks, prom, ignore.strand = TRUE)))/10^6
+#15.6965
+
+#Quantify the relationship, is there significant enrichment here
+#Create Matrix
+inOut_fetal <- matrix(0, ncol = 2, nrow = 2) 
+colnames(inOut_fetal) <- c("in", "out")
+rownames(inOut_fetal) <- c("in", "out")
+
+#Fill the matrix(Peaks on rows and promoters on cols)
+inOut_fetal[1,1] <- sum(width(intersect(peaks, prom, ignore.strand = TRUE)))#bases in peaks and prom
+inOut_fetal[1,2] <- sum(width(setdiff(peaks, prom, ignore.strand = TRUE)))#Bases in peaks but not prom 
+inOut_fetal[2,1] <- sum(width(setdiff(prom, peaks, ignore.strand = TRUE)))#Bases in prom but not peaks 
+inOut_fetal[2,2] <- 3*10^9 - sum(inOut_fetal)
+
+fisher.test(inOut_fetal)$statistics
+#Too big to compute
+
+#Compute log odds ratio( the overalp of peaks and promoters)
+oddsRatio_fetal <- inOut_fetal[1,1] * inOut_fetal[2,2] / (inOut_fetal[2,1] * inOut_fetal[1,2])
+#47.90242
+#here the overlap between peaks and promoters and peaks is ~ 48% more enriched than we would expect
+
+#Sensitivity Analysis since not all 3 billion bases of human genome are mappable
+#How much does this oddsRatio change if we dramatically change our assumption o fthe human genome
+#Supose half the human genome is mappable
+
+inOut_fetal2 <- inOut_fetal
+inOut_fetal2[2,2] <- 0
+
+inOut_fetal2[2,2] <- 1.5 * 10^9 - sum(inOut_fetal2)
+
+#Calculate the oddsRatio for the small genome
+oddsRatio_fetal2 <- inOut_fetal2[1,1] * inOut_fetal2[2,2] / (inOut_fetal2[2,1] * inOut_fetal2[1,2])
+#23.31237
+
+#So even though the size of genome has some influence it still shows a huge amount of enrichment(any number greater than 1 means there is enrichment)
+#Not the most reliable way but this calculation shows that there is some enrichment
+
+```
+
+Fetal Samples: Enrichment only of promoters in upregulated genes of fetal samples (are marked by H3K4me3)
+```{r }
+# We use the peaks which are the H3k4me3 peaks from the fetal sample of Epigenome Roadmap 
+peaks <- epi_gr2
+
+# We will get promoters for the upregulated genes
+prom2 <- promoters(upreg_gr)
+
+#Check width of promoters
+table(width(prom2))
+
+#Is H3K4me3 enriched in promoters of fetal brain sample
+#Check for Overlaps between Promoters and Peaks for fetal
+
+ov2_fetal <- findOverlaps(prom2,peaks)
+#We need only number of unique hits
+length(unique(queryHits(ov2_fetal))) 
+#9310
+length(unique(subjectHits(ov2_fetal)))
+#8251
+
+#Check out of my peaks how many overlap a promoter
+length(subsetByOverlaps(peaks, prom2, ignore.strand = TRUE))
+#8251
+
+#Get percentage of peaks that overlap a promoter
+length(subsetByOverlaps(peaks, prom2, ignore.strand = TRUE))/length(peaks)
+#0.1911458
+
+#How many promoter have a peak in it
+length(subsetByOverlaps(prom2, peaks, ignore.strand = TRUE))/length(prom2)
+#0.7561728
+
+#How many bases does the peak really cover in mega bases
+sum(width(reduce(peaks, ignore.strand = TRUE)))/10^6
+# 50.14265, ~ 50 MB
+
+#How many MB do the promoter cover
+sum(width(reduce(prom2, ignore.strand = TRUE)))/10^6
+# 23.26338
+
+#How big is the overlap
+sum(width(intersect(peaks, prom2, ignore.strand = TRUE)))/10^6
+#9.216502
+
+#Quantify the relationship, is there significant enrichment here
+#Create Matrix
+inOut_upreg <- matrix(0, ncol = 2, nrow = 2) 
+colnames(inOut_upreg) <- c("in", "out")
+rownames(inOut_upreg) <- c("in", "out")
+
+
+#Fill the matrix(Peaks on rows and promoters on cols)
+inOut_upreg[1,1] <- sum(width(intersect(peaks, prom2, ignore.strand = TRUE)))#bases in peaks and prom
+inOut_upreg[1,2] <- sum(width(setdiff(peaks, prom2, ignore.strand = TRUE)))#Bases in peaks but not prom 
+inOut_upreg[2,1] <- sum(width(setdiff(prom2, peaks, ignore.strand = TRUE)))#Bases in prom but not peaks 
+inOut_upreg[2,2] <- 3*10^9 - sum(inOut_upreg)
+
+fisher.test(inOut_upreg)$statistics
+#Too big to compute
+#Compute log odds ratio( the overalp of peaks and promoters)
+oddsRatio_upreg <- inOut_upreg[1,1] * inOut_upreg[2,2] / (inOut_upreg[2,1] * inOut_upreg[1,2])
+#47.06669
+
+#Sensitivity Analysis since not all 3 billion bases of human genome are mappable
+#How much does this oddsRatio change if we dramatically change our assumption o fthe human genome
+#Suppose half the human genome is mappable
+
+inOut_upreg2 <- inOut_upreg
+inOut_upreg2[2,2] <- 0
+
+inOut_upreg2[2,2] <- 1.5 * 10^9 - sum(inOut_upreg2)
+
+#Calculate the oddsRatio for the small genome
+#23.0188 
+
+```
+
+
+
+Adult Samples: Enrichment of promoters in differentially expressed genes (are marked by H3K4me3)
+```{r }
+
+ah <- AnnotationHub()
+ah <- subset(ah, species == "Homo sapiens")
+
+
+qhs_a <- query(ah, c("EpigenomeRoadMap","H3K4me3","Brain","narrowPeak"))
+#We choose the two files from the Brain_Mid_Frontal_Lobe
+
+adult_gr <- qhs_a[["AH43565"]] 
+adult_gr2 <- qhs_a[["AH43566"]]
+
+summary(width(adult_gr))#female
+summary(width(adult_gr2))#male
+
+table(width(adult_gr))
+table(width(adult_gr2))
+
+#We will take the first one since it is a female
+#AH43565 | BI.Brain_Mid_Frontal_Lobe.H3K4me3.112.narrowPeak.gz 
+adult_peaks <- adult_gr
+adult_peaks <- adult_gr2 #trying
+
+# Find overlaps between promoters of diff_exp_gr and adult_peaks
+#Is H3K4me3 enriched in promoters of adult brain sample
+#Check for Overlaps between Promoters and Peaks for adult
+
+ov_adult <- findOverlaps(prom,adult_peaks)
+
+#We need only number of unique hits
+length(unique(queryHits(ov_adult))) 
+# 17546
+
+length(unique(subjectHits(ov_adult)))
+# 20224
+
+#Check out of my peaks how many overlap a promoter
+length(subsetByOverlaps(adult_peaks, prom, ignore.strand = TRUE))
+# 20224
+
+#Get percentage of peaks that overlap a promoter
+length(subsetByOverlaps(adult_peaks, prom, ignore.strand = TRUE))/length(peaks)
+# 0.4685169
+
+#How many promoter have a peak in it
+length(subsetByOverlaps(prom, adult_peaks, ignore.strand = TRUE))/length(prom)
+# 0.7460668
+
+#How many bases does the peak really cover in mega bases
+sum(width(reduce(adult_peaks, ignore.strand = TRUE)))/10^6
+# ~ 47 MB
+
+#How many MB do the promoter cover
+sum(width(reduce(prom, ignore.strand = TRUE)))/10^6
+#43.49326
+
+#How big is the overlap
+sum(width(intersect(adult_peaks, prom, ignore.strand = TRUE)))/10^6
+#14.31939
+
+#Quantify the relationship, is there significant enrichment here
+#Create Matrix
+inOut_adult <- matrix(0, ncol = 2, nrow = 2) 
+colnames(inOut_adult) <- c("in", "out")
+rownames(inOut_adult) <- c("in", "out")
+
+
+#Fill the matrix(Peaks on rows and promoters on cols)
+inOut_adult[1,1] <- sum(width(intersect(adult_peaks, prom, ignore.strand = TRUE)))#bases in peaks and prom
+inOut_adult[1,2] <- sum(width(setdiff(adult_peaks, prom, ignore.strand = TRUE)))#Bases in peaks but not prom 
+inOut_adult[2,1] <- sum(width(setdiff(prom, adult_peaks, ignore.strand = TRUE)))#Bases in prom but not peaks 
+inOut_adult[2,2] <- 3*10^9 - sum(inOut_adult)
+
+fisher.test(inOut_adult)$statistics
+#Too big to compute
+
+#Compute log odds ratio( the overalp of peaks and promoters)
+oddsRatio_adult <- inOut_adult[1,1] * inOut_adult[2,2] / (inOut_adult[2,1] * inOut_adult[1,2])
+#44.2082
+
+#here the overlap between peaks and promoters and peaks is ~ 44 more enriched than we would expect
+
+#Sensitivity Analysis since not all 3 billion bases of human genome are mappable
+#How much does this oddsRatio change if we dramatically change our assumption of the human genome
+#Suppose half the human genome is mappable
+
+inOut_adult2 <- inOut_adult
+inOut_adult2[2,2] <- 0
+
+inOut_adult2[2,2] <- 1.5 * 10^9 - sum(inOut_adult2)
+
+#Calculate the oddsRatio for the small genome
+oddsRatio_adult2 <- inOut_adult2[1,1] * inOut_adult2[2,2] / (inOut_adult2[2,1] * inOut_adult2[1,2])
+# 21.5299
+
+#So even though the size of genome has some influence it still shows a huge amount of enrichment(any number greater than 1 means there is enrichment)
+#Not the most reliable way but this calculation shows that there is some enrichment in adult brain. though slightly less than fetal brain
+
+``` 
+
+Liver Cells: Test enrichment of promoters in differentially expressed genes in liver cells
+
+```{r }
+
+
+ah_l <- AnnotationHub()
+
+ah_l <- subset(ah_l, species == "Homo sapiens")
+
+qhs_liver <- query(ah_l, c("EpigenomeRoadMap","H3K4me3","Liver","narrowPeak"))
+
+liver_gr <- qhs_liver[["AH43450"]]
+liver_gr2 <- qhs_liver[["AH43451"]]
+liver_gr3 <- qhs_liver[["AH43452"]]
+
+summary(width(liver_gr))
+summary(width(liver_gr2))
+summary(width(liver_gr3))
+
+
+#We will take the first one as it is a female
+liver_peaks <- liver_gr
+liver_peaks <- liver_gr3 #trial
+
+# Find overlaps between promoters of diff_exp_gr and liver_peaks
+#Is H3K4me3 enriched in promoters of liver sample
+#Check for Overlaps between Promoters and Peaks for adult
+
+ov_liver <- findOverlaps(prom,liver_peaks)
+
+#We need only number of unique hits
+length(unique(queryHits(ov_liver))) 
+# 15426
+
+length(unique(subjectHits(ov_liver)))
+# 20409
+
+#Check out of my peaks how many overlap a promoter
+length(subsetByOverlaps(liver_peaks, prom, ignore.strand = TRUE))
+# 20409
+
+#Get percentage of peaks that overlap a promoter
+length(subsetByOverlaps(liver_peaks, prom, ignore.strand = TRUE))/length(peaks)
+#  0.4728027
+
+#How many promoter have a peak in it
+length(subsetByOverlaps(prom, liver_peaks, ignore.strand = TRUE))/length(prom)
+# 0.6559231
+
+#How many bases does the peak really cover in mega bases
+sum(width(reduce(liver_peaks, ignore.strand = TRUE)))/10^6
+#47.38487
+
+#How many MB do the promoter cover
+sum(width(reduce(prom, ignore.strand = TRUE)))/10^6
+
+#How big is the overlap
+sum(width(intersect(liver_peaks, prom, ignore.strand = TRUE)))/10^6
+# ~ 10 MB
+
+#Quantify the relationship, is there significant enrichment here
+#Create Matrix
+inOut_liver <- matrix(0, ncol = 2, nrow = 2) 
+colnames(inOut_liver) <- c("in", "out")
+rownames(inOut_liver) <- c("in", "out")
+
+#Fill the matrix(Peaks on rows and promoters on cols)
+inOut_liver[1,1] <- sum(width(intersect(liver_peaks, prom, ignore.strand = TRUE)))#bases in peaks and prom
+inOut_liver[1,2] <- sum(width(setdiff(liver_peaks, prom, ignore.strand = TRUE)))#Bases in peaks but not prom 
+inOut_liver[2,1] <- sum(width(setdiff(prom, liver_peaks, ignore.strand = TRUE)))#Bases in prom but not peaks 
+inOut_liver[2,2] <- 3*10^9 - sum(inOut_liver)
+
+
+fisher.test(inOut_liver)$statistics
+#Too big to compute
+
+#Compute log odds ratio( the overalp of peaks and promoters)
+oddsRatio_liver <- inOut_liver[1,1] * inOut_liver[2,2] / (inOut_liver[2,1] * inOut_liver[1,2])
+# 23.72358
+
+#here the overlap between peaks and promoters and peaks is ~ 23 more enriched than we would expect
+
+#Sensitivity Analysis since not all 3 billion bases of human genome are mappable
+#How much does this oddsRatio change if we dramatically change our assumption of the human genome
+#Suppose half the human genome is mappable
+
+inOut_liver2 <- inOut_liver
+inOut_liver2[2,2] <- 0
+
+inOut_liver2[2,2] <- 1.5 * 10^9 - sum(inOut_liver2)
+
+#Calculate the oddsRatio for the small genome
+oddsRatio_liver2 <- inOut_liver2[1,1] * inOut_liver2[2,2] / (inOut_liver2[2,1] * inOut_liver2[1,2])
+#11.53361
+
+```
+
+
+#################################################################################################
+
+Week 8 :Continued
+
+#Shrinkage for Visualization and ranking
+We provide the dds object and the name or number of the coefficient we want to shrink, where the number refers to the order of the coefficient as it appears in resultsNames(brain_dds)
+
+```{r }
+resultsNames(brain_dds)
+brain_resLFC <- lfcShrink(brain_dds, coef="type_fetal_vs_adult", type="apeglm")
+brain_resLFC
+```
+
+Volcano Plot of Differential Expression
+
+Plot the fold change (or effect size) for age in each linear model versus the log10 p-value
+```{r }
+if (!requireNamespace('BiocManager', quietly = TRUE))
+    install.packages('BiocManager')
+
+  BiocManager::install('EnhancedVolcano')
+  
+library(EnhancedVolcano)  
+
+#Annotate the gene names(rownames of barin_dds) with symbols
+#Get gene names 
+genes <- rownames(brain_dds)  
+library(org.Hs.eg.db) 
+symbols <- mapIds(org.Hs.eg.db, keys = genes, column=c("SYMBOL"), keytype = "REFSEQ")  
+symbols <- symbols[!is.na(symbols)]      
+rownames(brain_dds) <- symbols
+keep <- !is.na(rownames(brain_dds))
+brain_dds <- brain_dds[keep,]
+
+brain_resLFC <- lfcShrink(brain_dds, coef="type_fetal_vs_adult", type="apeglm")
+
+#Using the default parameter values
+EnhancedVolcano(brain_resLFC, lab = rownames(brain_resLFC),x = 'log2FoldChange', y = 'pvalue', title ='logFold change vs -log 10 p-value')
+
+
+
+#Chnaging FCcutoff to 0.5
+EnhancedVolcano(brain_resLFC, lab = rownames(brain_resLFC),x = 'log2FoldChange', y = 'pvalue',title('logFold change vs -log 10 p-value'))
+
+EnhancedVolcano(brain_resLFC,
+    lab = rownames(brain_resLFC),
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = 'logFold change vs -log 10 p-value',
+    FCcutoff = 0.5,
+    pointSize = 3.0,
+    labSize = 6.0)
+
+``` 
+
+With Annotation
+p-values and adjusted p-values with DESeq 
+```{r }
+
+genes <- rownames(brain_dds)  
+library(org.Hs.eg.db) 
+symbols <- mapIds(org.Hs.eg.db, keys = genes, column=c("SYMBOL"), keytype = "REFSEQ")  
+symbols <- symbols[!is.na(symbols)]      
+rownames(brain_dds) <- symbols
+keep <- !is.na(rownames(brain_dds))
+brain_dds <- brain_dds[keep,]
+
+#Now that we have an annotated brain_dds we can run DESeq on it
+brain_ddsAnnot <- DESeq(brain_dds)
+#With default cutoff of adjpval < 0.1
+brain_resAnnot <- results(brain_ddsAnnot)
+brain_resAnnot
+brain_resAnnotOrdered <- brain_resAnnot[order(brain_resAnnot$pvalue), ]
+
+
+
+#With cutoff of adjpval < 0.05
+brain_res05Annot <- results(brain_ddsAnnot,alpha=0.05)
+brain_res05Annot
+brain_res05AnnotOrdered <- brain_res05Annot[order(brain_res05Annot$pvalue), ]
+
+
+#Number of genes genes differentially expressed at FDR rate of less than 0.05 
+summary(brain_res05Annot)
+sum(brain_res05Annot$padj < 0.05, na.rm = TRUE)
+#2650
+
+```
+
+Writing results to file
+
+```{r }
+write.csv(as.data.frame(brain_res05AnnotOrdered), file="type_fetal_vs_adult")
+
+```
+
+
