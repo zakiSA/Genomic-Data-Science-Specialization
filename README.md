@@ -1,11 +1,6 @@
 # Genomic-Data-Science-Specialization
 
-# Specialization Certificate
-<img src="Coursera_Certificate_74XBX96Y7YDP.jpg" width="800">
-
-# Specialization Certificate from Johns Hopkins University Coursera (8 courses)
-
-With genomics sparks a revolution in medical discoveries, it becomes imperative to be able to better understand the genome, and be able to leverage the data and information from genomic datasets. Genomic Data Science is the field that applies statistics and data science to the genome. 
+# Specialization by Johns Hopkins University Coursera (8 courses)
 
 This Specialization covers the concepts and tools to understand, analyze, and interpret data from next generation sequencing experiments. It teaches the most common tools used in genomic data science including how to use the command line, along with a variety of software implementation tools like Python, R, and Bioconductor. 
 
@@ -20,4 +15,7 @@ This Specialization is designed to serve as both a standalone introduction to ge
 ## Course 6: Bioconductor for Genomic Data Science
 ## Course 7: Statistics for Genomic Data Science
 ## Course 8: Genomic Data Science Capstone
+
+# Specialization Certificate
+<img src="Coursera_Certificate_74XBX96Y7YDP.jpg" width="800">
 
